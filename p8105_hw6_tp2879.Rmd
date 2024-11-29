@@ -27,13 +27,15 @@ scale_fill_discrete = scale_fill_viridis_d
 Load key packages
 ```{r}
 library(broom)
+library(modelr)
+library(purrr)
 ```
 
 # Problem 2
 
 Importing and cleaning the data.
-```{r}
-homicide_data = read_csv(file = "./data/homicide-data.csv") |> 
+```{r warning = FALSE}
+homicide_data = read.csv(file = "./data/homicide-data.csv") |> 
   janitor::clean_names() |> 
   mutate(
     city_state = paste(city, state, sep = ", "),
@@ -42,39 +44,145 @@ homicide_data = read_csv(file = "./data/homicide-data.csv") |>
   select(victim_race, victim_age, victim_sex, disposition, city_state) |> 
   filter(
     victim_race %in% c("White", "Black"),
-    city_state != c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO,", "Tulsa, AL"))
-  
+    !city_state %in% c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO,", "Tulsa, AL"))
 ```
 
 Fitting the logistic regression model
 ```{r}
+baltimore_data = homicide_data |> 
+  filter(city_state == "Baltimore, MD")
+
 baltimore_logistic = glm(
-  disposition == "Resolved" ~ victim_age + victim_sex + victim_race, family = binomial(), data = homicide_data
+  disposition %in% c("Closed by arrest", "Closed without arrest") ~ victim_age + victim_sex + victim_race, family = binomial(), data = baltimore_data
 )
 
 summary(baltimore_logistic)
 
-saveRDS(baltimore_logistic, file = "./baltimore_logistic.rds")
-baltimore_logistic = readRDS("./baltimore_logistic.rds")
+tidy_model = tidy(baltimore_logistic, conf.int = TRUE)
 ```
 
 ```{r}
-baltimore_tidy = tidy(baltimore_logistic)
+sex_coef = tidy_model |> 
+  filter(term == "sexMale")
+```
+
+
+```{r}
+odds_ratio = exp(sex_coef$estimate)
+confidence_upper = exp(sex_coef$conf.high)
+confidence_lower = exp(sex_coef$conf.low)
+```
+
+
+```{r}
+results = homicide_data |> 
+  filter(victim_race %in% c("White", "Black")) |> 
+  group_by(city_state) |> 
+  nest() |> 
+  mutate(
+    model = map(data, ~ glm(disposition %in% c("Closed by arrest", "Closed without arrest") ~ victim_age + victim_sex + victim_race, data = .x, family = binomial())),
+    tidy_model = map(model, tidy, conf.int = TRUE)) |> 
+  select(city_state, tidy_model)
+```
+
+
+```{r}
+odds_ratios = results |> 
+  unnest(tidy_model) |> 
+  filter(term == "sexMale") |> 
+  mutate(
+    odds_ratio = exp(estimate),
+    confidence_lower = exp(conf.low),
+    confidence_upper = exp(conf.high)
+  ) |> 
+  select(city_state, odds_ratio, confidence_lower, confidence_upper)
 ```
 
 ```{r}
-sex_coef = baltimore_tidy$estimate[baltimore_tidy$term == "victim_sexMale"]
+ggplot(odds_ratios, aes(x = odds_ratio, y = reorder(city_state, odds_ratio))) +
+  geom_point(size = 3, color = "blue") +
+  geom_errorbarh(aes(xmin = confidence_lower, xmax = confidence_upper), height = 0.2, color = "black") +
+  labs(
+    title = "Estimated Odds Ratios for Solving Homicides: Male vs. Female Victims",
+    x = "Odds Ratio (OR)", 
+    y = "City")
+```
+
+
+# Problem 3 
+
+```{r}
+birthweight_data = read.csv(file = "./data/birthweight.csv") |> 
+  janitor::clean_names() |> 
+  mutate(
+    babysex = factor(babysex, levels = c(1, 2), labels = c("Male", "Female")),
+    frace = factor(frace, levels = c(1, 2, 3, 4, 8, 9), labels = c("White", "Black", "Asian", "Puerto Rican", "Other", "Unknown")),
+    malform = factor(malform, levels = c(0, 1), labels = c("Absent", "Present")),
+    mrace = factor(mrace, levels = c(1, 2, 3, 4, 8), labels = c("White", "Black", "Asian", "Puerto Rican", "Other"))
+  )
 ```
 
 ```{r}
-odds_ratio = exp(sex_coef)
+missing_data = colSums(is.na(birthweight_data))
+print(missing_data)
 ```
 
 ```{r}
-confidence = confint(baltimore_logistic, "victim_sexMale")
+birthweight_model = lm(
+  bwt ~ blength + bhead + babysex + momage + ppbmi + smoken + wtgain + gaweeks + malform + fincome, 
+  data = birthweight_data
+)
 ```
 
 ```{r}
-odds_confidence = exp(confidence)
+birthweight_data = birthweight_data |> 
+  add_predictions(birthweight_model, var = "predicted_bwt") |> 
+  add_residuals(birthweight_model, var = "residual_bwt")
+
 ```
+
+```{r}
+ggplot(birthweight_data, aes(x = predicted_bwt, y = bwt)) + 
+  geom_point(alpha = 0.6) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Actual vs. Predicted Birthweight", 
+    x = "Predicted Birthweight (grams)",
+    y = "Actual Birthweight (grams)"
+  )
+```
+
+```{r}
+ggplot(birthweight_data, aes(x = predicted_bwt, y = residual_bwt)) +
+  geom_point(alpha = 0.6) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Residuals vs. Predicted Birthweight",
+    x = "Predicted Birthweight (grams)",
+    y = "Residuals (grams)"
+  )
+```
+
+```{r}
+summary(birthweight_model)
+```
+
+```{r}
+simplified_model = lm(
+  bwt ~ blength + gaweeks, 
+  data = birthweight_data
+)
+
+summary(simplified_model)
+```
+
+```{r}
+interaction_model = lm(
+  bwt ~ bhead * blength * babysex,
+  data = birthweight_data
+)
+
+summary(interaction_model)
+```
+
 
