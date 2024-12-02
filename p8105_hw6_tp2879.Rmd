@@ -33,7 +33,6 @@ library(purrr)
 
 # Problem 2
 
-Importing and cleaning the data.
 ```{r warning = FALSE}
 homicide_data = read.csv(file = "./data/homicide-data.csv") |> 
   janitor::clean_names() |> 
@@ -47,7 +46,6 @@ homicide_data = read.csv(file = "./data/homicide-data.csv") |>
     !city_state %in% c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO,", "Tulsa, AL"))
 ```
 
-Fitting the logistic regression model
 ```{r}
 baltimore_data = homicide_data |> 
   filter(city_state == "Baltimore, MD")
@@ -63,16 +61,14 @@ tidy_model = tidy(baltimore_logistic, conf.int = TRUE)
 
 ```{r}
 sex_coef = tidy_model |> 
-  filter(term == "sexMale")
+  filter(term == "victim_sexMale")
 ```
-
 
 ```{r}
 odds_ratio = exp(sex_coef$estimate)
 confidence_upper = exp(sex_coef$conf.high)
 confidence_lower = exp(sex_coef$conf.low)
 ```
-
 
 ```{r}
 results = homicide_data |> 
@@ -85,25 +81,24 @@ results = homicide_data |>
   select(city_state, tidy_model)
 ```
 
-
 ```{r}
-odds_ratios = results |> 
+results = results |> 
   unnest(tidy_model) |> 
-  filter(term == "sexMale") |> 
+  filter(term == "victim_sexMale") |> 
   mutate(
     odds_ratio = exp(estimate),
     confidence_lower = exp(conf.low),
     confidence_upper = exp(conf.high)
   ) |> 
-  select(city_state, odds_ratio, confidence_lower, confidence_upper)
+  filter(!is.na(odds_ratio) & !is.na(confidence_lower) & !is.na(confidence_upper))
 ```
 
 ```{r}
-ggplot(odds_ratios, aes(x = odds_ratio, y = reorder(city_state, odds_ratio))) +
+ggplot(results, aes(x = odds_ratio, y = reorder(city_state, odds_ratio))) +
   geom_point(size = 3, color = "blue") +
-  geom_errorbarh(aes(xmin = confidence_lower, xmax = confidence_upper), height = 0.2, color = "black") +
+  geom_errorbarh(aes(xmin = confidence_lower, xmax= confidence_upper), height = 0.2, color = "black") +
   labs(
-    title = "Estimated Odds Ratios for Solving Homicides: Male vs. Female Victims",
+    title = "Odds Ratios for Solving Homicides: Male vs. Female Victims",
     x = "Odds Ratio (OR)", 
     y = "City")
 ```
@@ -185,4 +180,59 @@ interaction_model = lm(
 summary(interaction_model)
 ```
 
+```{r}
+k_folds = 10
+
+set.seed(123)
+indices = sample(1:nrow(birthweight_data))
+folds = split(indices, cut(1:length(indices), k_folds, labels = FALSE))
+```
+
+```{r}
+full_model = function(train_data) {
+  lm(bwt ~ blength + bhead + babysex + momage + ppbmi + smoken + wtgain + gaweeks + malform + fincome, data = train_data)
+}
+
+simplified_model = function(train_data) {
+  lm(bwt ~ blength + gaweeks, data = train_data)
+}
+
+interaction_model = function(train_data) {
+  lm(bwt ~ bhead * blength * babysex, data = train_data)
+}
+```
+
+```{r}
+calc_rmse = function(model_func, fold_idx) {
+  test_indices = folds[[fold_idx]]
+  train_data = birthweight_data[-test_indices, ]
+  test_data = birthweight_data[test_indices, ]
+  
+  model = model_func(train_data)
+  
+  predictions = predict(model, newdata = test_data)
+  
+  rmse = sqrt(mean((test_data$bwt - predictions)^2))
+  
+  return(rmse)
+}
+```
+
+```{r}
+full_model_rmse = map_dbl(1:k_folds, ~ calc_rmse(full_model, .))
+
+simplified_model_rmse = map_dbl(1:k_folds, ~ calc_rmse(simplified_model, .))
+
+interaction_model_rmse = map_dbl(1:k_folds, ~ calc_rmse(interaction_model, .))
+```
+
+```{r}
+model_comparison = tibble(
+  model = c("Full Model", "Simplified Model", "Interaction Model"),
+  mean_rmse = c(mean(full_model_rmse), mean(simplified_model_rmse), mean(interaction_model_rmse)),
+  sd_rmse = c(sd(full_model_rmse), sd(simplified_model_rmse), mean(interaction_model_rmse))
+)
+
+print(model_comparison)
+```
 
