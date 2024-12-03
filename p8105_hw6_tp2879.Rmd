@@ -103,6 +103,7 @@ ggplot(results, aes(x = odds_ratio, y = reorder(city_state, odds_ratio))) +
     y = "City")
 ```
 
+The plot shows the odds ratio of solved homicide cases, either Closed with arrest or Closed without arrest, comparing males and females and across different cities. This is to show how homicide rates differ by gender and geographic location. The x-axis shows the odds ratio and the y-axis show the city. It looks like there is a higher odds ratio in Fresno, CA, Minneapolis, MN, and Stockton, CA. 
 
 # Problem 3 
 
@@ -129,12 +130,15 @@ birthweight_model = lm(
 )
 ```
 
+The modeling process includes first importing and cleaning the data. I converted numeric vectors to factor vectors for babysex, frace, malform, and mrace, and checked for any missing data. I then introduced a regression model for birthweight factoring in baby's length at birth in centimeters, baby's head circumference at birth in centimeters, baby's sex, mother's age at delivery, mother's pre-pregnancy BMI, average number of cigarettes smoked per day during pregnancy, mother's weight gain during pregnancy in pounds, gestational age in weeks, presence of maformations that could affect weight, and family mothly income in hundreds. 
+
 ```{r}
 birthweight_data = birthweight_data |> 
   add_predictions(birthweight_model, var = "predicted_bwt") |> 
   add_residuals(birthweight_model, var = "residual_bwt")
 
 ```
+
 
 ```{r}
 ggplot(birthweight_data, aes(x = predicted_bwt, y = bwt)) + 
